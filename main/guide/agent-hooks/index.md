@@ -1,6 +1,6 @@
 # AI Agent Hooks
 
-Atuin can capture commands run by AI coding agents (like Claude Code, Codex, and pi) alongside your regular shell history. Atuin tags each command with the agent that ran it, so you can filter your history by author.
+Atuin can capture commands run by AI coding agents (like Claude Code, Codex, Copilot, Grok Build, Kiro CLI, opencode, and pi) alongside your regular shell history. Atuin tags each command with the agent that ran it, so you can filter your history by author.
 
 ## Quick Start
 
@@ -13,11 +13,25 @@ atuin hook install claude-code
 # Codex
 atuin hook install codex
 
+# GitHub Copilot CLI
+atuin hook install copilot
+
+# Grok Build
+atuin hook install grok
+
+# Kiro CLI
+atuin hook install kiro
+
+# opencode
+atuin hook install opencode
+
 # pi
 atuin hook install pi
 ```
 
 That's it. Commands the agent runs will now appear in your Atuin history, tagged with the agent's name.
+
+To let the agent search your history too, connect it to Atuin's [MCP server](https://docs.atuin.sh/ai/mcp/index.md) with `atuin mcp install <agent>`.
 
 ## How It Works
 
@@ -25,18 +39,24 @@ AI coding agents support hook systems that notify external tools when they're ab
 
 When `atuin hook install` runs, it writes the agent's config file or extension to register Atuin as a hook handler:
 
-| Agent       | Config file / extension           |
-| ----------- | --------------------------------- |
-| Claude Code | `~/.claude/settings.json`         |
-| Codex       | `~/.codex/hooks.json`             |
-| pi          | `~/.pi/agent/extensions/atuin.ts` |
+| Agent       | Config file / extension                                                                           |
+| ----------- | ------------------------------------------------------------------------------------------------- |
+| Claude Code | `~/.claude/settings.json`                                                                         |
+| Codex       | `$CODEX_HOME/hooks.json` (by default `~/.codex/hooks.json`), trusted in `$CODEX_HOME/config.toml` |
+| Copilot     | `$COPILOT_HOME/hooks/atuin.json` (by default `~/.copilot/hooks/atuin.json`)                       |
+| Grok Build  | `$GROK_HOME/hooks/atuin.json` (by default `~/.grok/hooks/atuin.json`)                             |
+| Kiro CLI    | `$KIRO_HOME/hooks/atuin.json` (by default `~/.kiro/hooks/atuin.json`)                             |
+| opencode    | `~/.config/opencode/plugins/atuin.ts`                                                             |
+| pi          | `~/.pi/agent/extensions/atuin.ts`                                                                 |
 
 The hook lifecycle:
 
 1. **PreToolUse** -- the agent is about to run a Bash command. Atuin records the command, working directory, and timestamp (same as `history start`).
 1. **PostToolUse / PostToolUseFailure** -- the command finished. Atuin records the exit code and duration (same as `history end`).
 
-Atuin only captures `Bash` tool invocations. It ignores other tool types (file writes, web fetches, etc.).
+Atuin only captures shell tool invocations (`Bash`, or Kiro's `execute_bash`). It ignores other tool types (file writes, web fetches, etc.).
+
+Agents that load extensions rather than shelling out to a hook command -- opencode and pi -- call `atuin history start` and `atuin history end` directly instead, but record the same thing.
 
 ## Filtering by Author
 
@@ -44,14 +64,14 @@ By default, Atuin's interactive search shows only your own commands. Agent-run c
 
 Today this default is built into the search UI rather than configurable via `config.toml`. Interactive search uses the equivalent of:
 
-- `$all-user` — any author that's **not** a known AI agent
+- `$all-user` — any entry that's **not** agent-run
 
 For explicit author filtering, use the CLI `atuin search --author ...` flag. Special values:
 
-| Value        | Meaning                                    |
-| ------------ | ------------------------------------------ |
-| `$all-user`  | Any author that's **not** a known AI agent |
-| `$all-agent` | Any known AI agent author                  |
+| Value        | Meaning                            |
+| ------------ | ---------------------------------- |
+| `$all-user`  | Any entry that's **not** agent-run |
+| `$all-agent` | Any agent-run entry                |
 
 You can also use literal author names:
 
@@ -70,7 +90,7 @@ atuin search -- ''
 atuin search --author '$all-agent' -- ''
 ```
 
-Currently recognized agent names are: `claude-code`, `codex`, `copilot`, `opencode`, and `pi`.
+Currently recognized agent names are: `claude-code`, `codex`, `copilot`, `grok`, `kiro`, `omp`, `opencode`, and `pi`.
 
 ## Supported Agents
 
@@ -82,7 +102,7 @@ For support tiers, see [Supported platforms](https://docs.atuin.sh/support/index
 atuin hook install claude-code
 ```
 
-This adds hook entries to `~/.claude/settings.json`. Claude Code calls `atuin hook claude-code` on each `Bash` tool use, passing the event as JSON on `stdin`.
+This adds hook entries to `~/.claude/settings.json`. Claude Code calls `atuin hook claude-code` on each Bash tool use matching `^Bash$`, passing the event as JSON on `stdin`.
 
 ### Codex
 
@@ -90,7 +110,58 @@ This adds hook entries to `~/.claude/settings.json`. Claude Code calls `atuin ho
 atuin hook install codex
 ```
 
-This adds hook entries to `~/.codex/hooks.json`. Codex calls `atuin hook codex` on each Bash tool use matching `^Bash$`.
+This adds hook entries to `$CODEX_HOME/hooks.json` (by default `~/.codex/hooks.json`). Codex calls `atuin hook codex` on each Bash tool use matching `^Bash$`.
+
+Codex 0.160 and later only run hooks you have trusted, so the install also records Atuin's hooks as trusted in `$CODEX_HOME/config.toml` (`[hooks.state]` entries). It trusts only Atuin's own hooks, as installed, and leaves your other hooks and settings as they are. If you installed the hooks with an earlier version of Atuin, run the install again to trust them.
+
+### Copilot
+
+```
+atuin hook install copilot
+```
+
+This writes Atuin's hooks to `$COPILOT_HOME/hooks/atuin.json` (by default `~/.copilot/hooks/atuin.json`), a file of their own, so your other hooks are untouched. Copilot calls `atuin hook copilot` on each shell command, with the same event Claude Code sends.
+
+Copilot doesn't tell the hook which call a command belongs to, so Atuin matches a command's start with its end by the session and the command text. Two identical commands running at the same time in one session are recorded as one.
+
+### Grok Build
+
+```
+atuin hook install grok
+```
+
+This writes hook entries to `$GROK_HOME/hooks/atuin.json` (by default `~/.grok/hooks/atuin.json`). Grok Build maps the `^Bash$` matcher to its `run_terminal_command` shell tool and calls `atuin hook grok`, passing the event as JSON on `stdin`.
+
+Grok Build also runs hooks from `~/.claude/settings.json` when Claude compatibility is enabled. Inside a Grok Build session, Atuin attributes inherited `atuin hook claude-code` events to `grok`, and skips them when native `grok` hooks are installed too so commands aren't recorded twice.
+
+### Kiro CLI
+
+```
+atuin hook install kiro
+```
+
+This writes Atuin's hooks to `$KIRO_HOME/hooks/atuin.json` (by default `~/.kiro/hooks/atuin.json`), a file of their own, so your other hooks are untouched. Kiro calls `atuin hook kiro` before and after each `execute_bash` command (`execute_pwsh` on Windows), with the same event Claude Code sends. These hooks run under the V3 engine of Kiro CLI; on Kiro CLI 2.x, where the classic engine is still the default, run `kiro-cli --v3 chat` or set `chat.agentEngine` to `v3`.
+
+Kiro loads hooks when a session starts, so restart any Kiro already running. Hooks in your home directory run in every workspace; a hook file in a project's `.kiro/hooks` only runs once you have trusted that workspace, which is why the install writes to your home.
+
+Like Copilot, Kiro doesn't tell the hook which call a command belongs to, so Atuin matches a command's start with its end by the session and the command text. A command Kiro runs in the background isn't recorded, since Kiro reports it as done as soon as it starts. When Kiro reports a command that never ran (one whose permission was denied, say), it gives the exit code `-1`, and Atuin records that.
+
+### opencode
+
+```
+atuin hook install opencode
+```
+
+This writes Atuin's plugin to `~/.config/opencode/plugins/atuin.ts`, or to `$XDG_CONFIG_HOME/opencode/plugins/atuin.ts` if you have set `XDG_CONFIG_HOME`.
+
+Then restart opencode. The plugin records every shell tool command with author `opencode`, using the tool's description as the entry's intent when opencode supplies one.
+
+opencode 1.x and 2.x load plugins differently, so the install writes the plugin for the opencode it finds (`opencode --version`). After upgrading to opencode 2, run `atuin hook install opencode` again.
+
+A few details are worth knowing:
+
+- Commands you deny at the permission prompt aren't recorded. With opencode 2, a command is recorded once it has finished, so its time is when it ended, and its duration includes any wait at the permission prompt. A command that timed out is recorded with exit code 124, and one left running in the background isn't recorded.
+- Commands you run yourself in opencode -- with the `!command` prompt prefix or in a terminal pane -- aren't recorded either, since opencode didn't run them. Use Atuin's own shell integration for those.
 
 ### pi
 
@@ -123,6 +194,12 @@ cat ~/.claude/settings.json | grep atuin
 # Codex
 cat ~/.codex/hooks.json | grep atuin
 
+# Kiro CLI
+cat ~/.kiro/hooks/atuin.json
+
+# opencode
+ls ~/.config/opencode/plugins/atuin.ts
+
 # pi
 ls ~/.pi/agent/extensions/atuin.ts
 ```
@@ -137,4 +214,4 @@ hooks.PostToolUse: already installed, skipping
 hooks.PostToolUseFailure: already installed, skipping
 ```
 
-For pi, reinstalling will also skip if the managed extension already matches the bundled version.
+For opencode and pi, reinstalling will also skip if the installed extension already matches the one for your agent's version.
